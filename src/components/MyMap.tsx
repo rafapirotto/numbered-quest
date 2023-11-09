@@ -1,9 +1,11 @@
-import React, { ReactElement, useEffect, useRef, useState } from 'react';
-import { collection, addDoc } from 'firebase/firestore';
+import React, { ReactElement, useEffect, useRef } from 'react';
+import { collection, addDoc, doc, setDoc } from 'firebase/firestore';
 
 import { db } from '../firebase';
 
 let label = 1;
+const collectionName = 'quests';
+let parentId = '';
 
 const addMarkerToMap = (
   location: google.maps.LatLngLiteral,
@@ -17,7 +19,7 @@ const addMarkerToMap = (
   });
 };
 
-const addMarkerToFirebase = async (
+const addParentMarker = async (
   location: google.maps.LatLngLiteral,
   labelToAdd: string,
 ) => {
@@ -28,10 +30,34 @@ const addMarkerToFirebase = async (
       Long: location.lng(),
       Timestamp: new Date().toISOString(),
     };
-    const doc = await addDoc(collection(db, 'quests'), data);
+    const doc = await addDoc(collection(db, collectionName), data);
     return doc.id;
   } catch (e) {
     console.error('Error adding document: ', e);
+    return '';
+  }
+};
+
+const addChildMarker = async (
+  location: google.maps.LatLngLiteral,
+  labelToAdd: string,
+  parentId: string,
+) => {
+  try {
+    const subCollectionName = 'next'; // Replace with your subcollection name
+    const data = {
+      Quest: String(labelToAdd),
+      Lat: location.lat(),
+      Long: location.lng(),
+      Timestamp: new Date().toISOString(),
+    };
+    const parentDocRef = doc(db, collectionName, parentId);
+    const subCollectionRef = collection(parentDocRef, subCollectionName);
+    await addDoc(subCollectionRef, data);
+    console.log('Child document added successfully!');
+    return parentId;
+  } catch (e) {
+    console.error('Error adding child document: ', e);
     return '';
   }
 };
@@ -67,7 +93,6 @@ const MyMap = ({
   zoom: number;
 }): ReactElement => {
   const mapRef = useRef<HTMLDivElement>(null);
-  const [lastQuestId, setLastQuestId] = useState('');
 
   const addMarker = async (
     location: google.maps.LatLngLiteral,
@@ -75,8 +100,11 @@ const MyMap = ({
   ): Promise<void> => {
     const labelToAdd = String(label++);
     addMarkerToMap(location, map, labelToAdd);
-    const id = await addMarkerToFirebase(location, labelToAdd);
-    setLastQuestId(id);
+    if (!!parentId) {
+      parentId = await addChildMarker(location, labelToAdd, parentId);
+    } else {
+      parentId = await addParentMarker(location, labelToAdd);
+    }
   };
 
   useEffect(() => {
@@ -85,10 +113,6 @@ const MyMap = ({
       addListenerToMap(map, addMarker);
     }
   }, []);
-
-  useEffect(() => {
-    console.log('lastQuestId changed', lastQuestId);
-  }, [lastQuestId]);
 
   return <div className="map" ref={mapRef} />;
 };
